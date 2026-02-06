@@ -1,0 +1,65 @@
+#define _DEFAULT_SOURCE
+#define _ISOC99_SOURCE
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+#define BLOCK_SIZE 128
+#define HEAP_SIZE 256
+#define BUF_SIZE 64
+struct header {
+uint64_t size;
+struct header *next;
+};
+
+void handle_error(const char *failure_message) {
+    perror(failure_message);
+    exit(EXIT_FAILURE);
+}
+void print_out(char *output_template, void *value_location, size_t byte_count) {
+    char output_buffer[BUF_SIZE];
+    ssize_t result_length = snprintf(output_buffer, BUF_SIZE, output_template, byte_count==sizeof(uint64_t) ? *(uint64_t *)value_location : (byte_count==sizeof(uint32_t) ? *(uint32_t *)value_location : *(void **)value_location));
+
+    if (result_length < 0) {
+        handle_error("snprintf");
+    }
+    write(STDOUT_FILENO, output_buffer, result_length);
+}
+void print_block(char *memory_location) {
+    int position;
+    for (position = 0; position < BLOCK_SIZE-sizeof(struct header); ++position) 
+    {
+       char *byte_address = memory_location+sizeof(struct header)+position;
+       uint64_t address_as_number = (uint64_t)(uintptr_t)byte_address;
+       print_out("%lu\n", &address_as_number, sizeof(address_as_number));
+    }
+}
+void initialize_block(struct header *block_header, uint64_t total_bytes, struct header *successor, int padding_value) 
+{
+    block_header->size = total_bytes;
+    block_header->next = successor;
+    memset(block_header + 1, padding_value, total_bytes - sizeof(struct header));
+}
+int main(void)
+{
+    char *allocated_region = sbrk(0);
+    if(sbrk(HEAP_SIZE) == (void *)-1)
+    {
+        handle_error("sbrk");
+    }
+    struct header *primary_header = (struct header *)allocated_region;
+    struct header *secondary_header = (struct header *)(allocated_region + BLOCK_SIZE);
+    initialize_block(primary_header, BLOCK_SIZE, NULL, 0);
+    initialize_block(secondary_header, BLOCK_SIZE, primary_header, 1);
+    print_out("First block: %p\n", &primary_header, sizeof(primary_header));
+    print_out("Second block: %p\n", &secondary_header, sizeof(secondary_header));
+    print_out("First block size: %lu\n", &primary_header->size, sizeof(primary_header->size));
+    print_out("Second block size: %lu\n", &secondary_header->size, sizeof(secondary_header->size));
+    print_out("First block next: %p\n", &primary_header->next, sizeof(primary_header->next));
+    print_out("Second block next: %p\n", &secondary_header->next, sizeof(secondary_header->next));
+    print_block((char *)(primary_header));
+    print_block((char *)(secondary_header));
+    return 0;
+}
